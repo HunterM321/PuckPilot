@@ -45,7 +45,8 @@ class Tracker(Node):
         if target not in ['puck', 'player mallet', 'agent mallet']:
             self.get_logger().error('Must select to track the puck or the mallets')
             
-            return None, None
+            position = None
+            velocity = None
 
         # Creat mask for target
         mask = self.create_mask(frame, target)

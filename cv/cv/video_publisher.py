@@ -3,7 +3,6 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 import cv2
-import time
 
 class VideoPublisher(Node):
     def __init__(self):
