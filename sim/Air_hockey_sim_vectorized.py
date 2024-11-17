@@ -620,7 +620,7 @@ def puck_mallet_collision_t(x_p, x_m, v_p, v_m, vpf, d_p, t, v_m_a2, am, a2m, C1
     qc = -vP*d_perp
 
     with np.errstate(divide='ignore', invalid='ignore'):
-        theta_n = np.where(qb == qc, -2 * np.atan(qb/np.abs(qa)),  2 * np.atan((qa-np.sqrt(qa**2+qb**2-qc**2))/(qb-qc)))
+        theta_n = np.where(qb == qc, -2 * np.arctan(qb/np.abs(qa)),  2 * np.arctan((qa-np.sqrt(qa**2+qb**2-qc**2))/(qb-qc)))
         theta_m = theta_n - np.pi / 2
 
         sa = vP**2 + v_max_mallet**2 - 2*v_max_mallet*vP * np.cos(theta_m)

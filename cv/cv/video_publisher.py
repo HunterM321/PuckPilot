@@ -9,9 +9,9 @@ class VideoPublisher(Node):
     def __init__(self):
         super().__init__('video_publisher')
         self.raw_vid_publisher = self.create_publisher(Image, '/camera/image_raw', 10)
-        fps = 60
+        fps = 118
         self.timer = self.create_timer(1 / fps, self.timer_callback)
-        self.cap = cv2.VideoCapture('/home/parallels/air_hockey_ws/puck_movement_simulation.mp4')
+        self.cap = cv2.VideoCapture('src/sim/puck_mallet_sim_118fps.mp4')
         self.bridge = CvBridge()
 
         if not self.cap.isOpened():
@@ -30,7 +30,7 @@ class VideoPublisher(Node):
             self.raw_vid_publisher.publish(msg)
             self.get_logger().info('Published a video frame')
         else:
-            self.get_logger().error('Failed to capture frame.')
+            self.get_logger().error('Failed to capture frame')
 
     def destroy_node(self):
         self.cap.release()  # Release the camera
