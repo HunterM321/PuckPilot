@@ -8,7 +8,8 @@ import cv2
 class CameraCalibrator(Node):
     def __init__(self):
         super().__init__('camera_calibrator')
-        self.raw_vid_subscription = self.create_subscription(Image, '/camera/image_raw', self.listener_callback, 10)
+        self.raw_vid_subscription = self.create_subscription(Image, '/flir_camera/image_raw', self.listener_callback, 10)
+        self.gray_publisher = self.create_publisher(Image, '/camera/gray_image', 10)
         self.chess_publisher = self.create_publisher(Image, '/camera/image_chess', 10)
         self.bridge = CvBridge()
 
@@ -27,6 +28,10 @@ class CameraCalibrator(Node):
         # Convert the ROS Image message to an OpenCV image
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # Publish the grayscale frame as a ROS2 Image message
+        gray_msg = self.bridge.cv2_to_imgmsg(gray, encoding='mono8')
+        self.gray_publisher.publish(gray_msg)
 
         # Set image shape
         if self.image_shape is None:

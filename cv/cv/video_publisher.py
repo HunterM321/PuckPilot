@@ -10,7 +10,7 @@ class VideoPublisher(Node):
         self.raw_vid_publisher = self.create_publisher(Image, '/camera/image_raw', 10)
         fps = 118
         self.timer = self.create_timer(1 / fps, self.timer_callback)
-        self.cap = cv2.VideoCapture('src/sim/puck_mallet_sim_118fps.mp4')
+        self.cap = cv2.VideoCapture(0)
         self.bridge = CvBridge()
 
         if not self.cap.isOpened():
