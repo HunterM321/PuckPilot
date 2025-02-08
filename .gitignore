@@ -1,3 +1,5 @@
 .hockeyenv
 sim/__pycache__
 .vscode
+cv/cv/__pycache__/
+cv/cv/csv/

@@ -8,7 +8,7 @@ import csv
 
 import os
 import sys
-sys.path.append(os.path.abspath('/home/fizzer/ai_airhockey/src/PuckPilot/cv/cv'))
+sys.path.append(os.path.abspath('/home/parallels/air_hockey_ws/src/cv/cv'))
 import extrinsic
 
 class Tracker(Node):
@@ -35,22 +35,37 @@ class Tracker(Node):
         self.distortion_coeffs = np.array([-0.11734783, 0.11960238, 0.00017337, -0.00030401, -0.01158902])
         self.rotation_matrix = cv2.Rodrigues(np.array([-2.4881045, -2.43093864, 0.81342852]))[0]
         self.translation_vector = np.array([-0.54740303, -1.08125622,  2.45483598])
-        # self.extrinsic_matrix = np.hstack((self.rotation_matrix, self.translation_vector))
+        
+        # Table outer corners
+        self.table_corners_world = np.array([[-0.085, -0.085, 0], [-0.085, 1.08, 0], [2.165, 1.08, 0], [2.165, -0.085, 0]])
+        self.table_corners_cam = np.zeros((4, 2))
     
     def create_mask(self, frame, target):
         # Convert the frame to HSV color space
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
         if target == 'puck':
             # Define the range for dark red color in HSV
-            lower1 = np.array([0, 100, 100])
-            upper1 = np.array([10, 255, 255])
-            lower2 = np.array([160, 100, 100])
-            upper2 = np.array([179, 255, 255])
-            # Create two masks and combine them
-            mask1 = cv2.inRange(hsv, lower1, upper1)
-            mask2 = cv2.inRange(hsv, lower2, upper2)
-            mask = cv2.bitwise_or(mask1, mask2)
+            # lower1 = np.array([0, 100, 100])
+            # upper1 = np.array([10, 255, 255])
+            # lower2 = np.array([160, 100, 100])
+            # upper2 = np.array([179, 255, 255])
+            # # Create two masks and combine them
+            # mask1 = cv2.inRange(hsv, lower1, upper1)
+            # mask2 = cv2.inRange(hsv, lower2, upper2)
+            # mask = cv2.bitwise_or(mask1, mask2)
+            # Define the range for bright yellow color in HSV
+            # lower = np.array([35, 50, 50])
+            # upper = np.array([85, 255, 255])
+            # Create mask
+            # mask = cv2.inRange(hsv, lower, upper)
+            # Create the mask if the G value is at least 20 and 1.3 times greater than both R and B values
+            mask = rgb[:, :, 1] >= 20
+            mask = np.logical_and(mask, rgb[:, :, 1] >= 1.3 * rgb[:, :, 0])
+            mask = np.logical_and(mask, rgb[:, :, 1] >= 1.3 * rgb[:, :, 2])
+            # Convert boolean mask to uint8
+            mask = mask.astype(np.uint8) * 255
         elif target == 'player mallet':
             # Define the range for black color in HSV
             lower = np.array([0, 0, 0])
@@ -65,11 +80,17 @@ class Tracker(Node):
             mask = cv2.inRange(hsv, lower, upper)
         return mask
     
-    def log_csv(self, position):
-        with open('/home/fizzer/ai_airhockey/src/PuckPilot/cv/cv/position.csv', mode='a') as file:
+    def log_csv(self, position, dt):
+        # Create csv if not exists
+        if not os.path.exists('/home/parallels/air_hockey_ws/src/cv/cv/csv/position.csv'):
+            with open('/home/parallels/air_hockey_ws/src/cv/cv/csv/position.csv', mode='w') as file:
+                writer = csv.writer(file)
+                writer.writerow(['x', 'y', 'dt'])
+        
+        with open('/home/parallels/air_hockey_ws/src/cv/cv/csv/position.csv', mode='a') as file:
             writer = csv.writer(file)
             if position:
-                writer.writerow([position[0], position[1]])
+                writer.writerow([position[0], position[1], dt])
     
     def track(self, frame, timestamp, dt, target):
         if target not in ['puck', 'player mallet', 'agent mallet']:
@@ -151,7 +172,7 @@ class Tracker(Node):
         # Update the previous timestamp
         self.prev_time = timestamp
 
-        self.log_csv(position)
+        self.log_csv(position, dt)
 
         return position, velocity
     
@@ -164,6 +185,32 @@ class Tracker(Node):
             self.get_logger().info(f'Velocity: x={velocity[0]}, y={velocity[1]}')
             self.get_logger().info(f'Speed: {speed}')
         self.get_logger().info('\n')
+    
+    def crop_to_polygon(self, image, points):
+        """
+        Crops an image to keep only the region inside a quadrilateral, making everything else black.
+        
+        Args:
+            image: numpy array of the image
+            points: numpy array of 4 points in order (top-left, top-right, bottom-right, bottom-left)
+    
+        Returns:
+            masked_image: image with everything outside the polygon set to black
+        """
+        # Create a mask
+        mask = np.zeros(image.shape[:2], dtype=np.uint8)
+        
+        # Convert points to integer if they aren't already
+        points = points.astype(np.int32)
+        
+        # Fill the polygon with white
+        cv2.fillPoly(mask, [points], (255))
+        
+        # Create the masked image
+        masked_image = image.copy()
+        masked_image[mask == 0] = 0
+        
+        return masked_image
     
     def listener_callback(self, msg):
         # Retrieve the timestamp of each frame
@@ -179,11 +226,19 @@ class Tracker(Node):
         # Convert the ROS Image message to an OpenCV image
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
 
-        if self.extrinsic_count % 100 == 0:
+        if self.extrinsic_count % 1e15 == 0:
             rvec, tvec = extrinsic.calibrate_extrinsic(frame)
+            self.table_corners_cam = extrinsic.project_points(self.table_corners_world,
+                                                              rvec,
+                                                              tvec,
+                                                              self.intrinsic_matrix,
+                                                              self.distortion_coeffs)
+            
             self.rotation_matrix = cv2.Rodrigues(rvec)[0]
             self.translation_vector = tvec
             self.get_logger().info('Extrinsic calibration successful')
+        
+        frame = self.crop_to_polygon(frame, self.table_corners_cam)
         
         self.extrinsic_count += 1
 
