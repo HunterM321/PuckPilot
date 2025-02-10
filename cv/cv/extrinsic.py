@@ -60,9 +60,9 @@ def detect_aruco_markers(img):
             cv2.polylines(img, [corners[i].astype(int)], True, (0, 255, 0), 2)
             cv2.circle(img, top_right, 5, (0, 0, 255), -1)
         
-        return top_right_corners, img
+        return top_right_corners, img, True
     
-    return {}, img
+    return {}, img, False
 
 
 def project_points(points_3d, rvec, tvec, camera_matrix, dist_coeffs):
@@ -257,7 +257,11 @@ def global_coordinate(pixel_point, rot_mat, tvec, camera_matrix, dist_coeffs, z_
     return point_world
 
 def calibrate_extrinsic(img: np.ndarray):
-    top_left_corners, _ = detect_aruco_markers(img)
+    top_left_corners, _, success = detect_aruco_markers(img)
+
+    if not success:
+        return None, None
+    
     # Given 3D points (in world coordinates)
     object_points = np.array([[-0.079, 0.1258, 0],
                               [-0.0775, 0.744, 0],

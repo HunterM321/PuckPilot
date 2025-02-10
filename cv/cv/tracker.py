@@ -226,17 +226,20 @@ class Tracker(Node):
         # Convert the ROS Image message to an OpenCV image
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
 
-        if self.extrinsic_count % 1e15 == 0:
+        if self.extrinsic_count % 500 == 0:
             rvec, tvec = extrinsic.calibrate_extrinsic(frame)
-            self.table_corners_cam = extrinsic.project_points(self.table_corners_world,
-                                                              rvec,
-                                                              tvec,
-                                                              self.intrinsic_matrix,
-                                                              self.distortion_coeffs)
-            
-            self.rotation_matrix = cv2.Rodrigues(rvec)[0]
-            self.translation_vector = tvec
-            self.get_logger().info('Extrinsic calibration successful')
+            if rvec is not None and tvec is not None:
+                self.table_corners_cam = extrinsic.project_points(self.table_corners_world,
+                                                                rvec,
+                                                                tvec,
+                                                                self.intrinsic_matrix,
+                                                                self.distortion_coeffs)
+                
+                self.rotation_matrix = cv2.Rodrigues(rvec)[0]
+                self.translation_vector = tvec
+                self.get_logger().info('Extrinsic calibration successful')
+            else:
+                self.get_logger().error('Extrinsic calibration failed, waiting for next time')
         
         frame = self.crop_to_polygon(frame, self.table_corners_cam)
         
