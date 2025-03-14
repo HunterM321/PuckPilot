@@ -57,12 +57,12 @@ def detect_aruco_markers(img):
             top_right_corners[marker_id] = top_right
             
             # Draw marker and top-right corner
-            cv2.polylines(img, [corners[i].astype(int)], True, (0, 255, 0), 2)
-            cv2.circle(img, top_right, 5, (0, 0, 255), -1)
+            # cv2.polylines(img, [corners[i].astype(int)], True, (0, 255, 0), 2)
+            # cv2.circle(img, top_right, 5, (0, 0, 255), -1)
         
-        return top_right_corners, img, True
+        return top_right_corners, img
     
-    return {}, img, False
+    return {}, img
 
 
 def project_points(points_3d, rvec, tvec, camera_matrix, dist_coeffs):
@@ -257,9 +257,9 @@ def global_coordinate(pixel_point, rot_mat, tvec, camera_matrix, dist_coeffs, z_
     return point_world
 
 def calibrate_extrinsic(img: np.ndarray):
-    top_left_corners, _, success = detect_aruco_markers(img)
+    top_left_corners, _ = detect_aruco_markers(img)
 
-    if not success:
+    if len(top_left_corners) != 6:
         return None, None
     
     # Given 3D points (in world coordinates)
@@ -285,7 +285,7 @@ def calibrate_extrinsic(img: np.ndarray):
                                        useExtrinsicGuess=True,
                                        tvec=np.array([-0.54740303, -1.08125622, 2.45483598]),
                                        rvec=np.array([-2.4881045, -2.43093864, 0.81342852]))
-    return rvec, tvec
+    return rvec, tvec, len(top_left_corners)
 
 def reprojection(img_point, rot_mat, tvec, intrinsic_matrix, dist_coeffs):
     z = -1.4e-2

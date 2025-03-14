@@ -23,6 +23,7 @@ setup(
             'video_publisher = cv.video_publisher:main',
             'calibrator = cv.calibrator:main',
             'tracker = cv.tracker:main',
+            'delay = cv.delay:main',
         ],
     },
 )

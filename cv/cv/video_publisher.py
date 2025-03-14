@@ -3,14 +3,16 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 import cv2
+import os
 
 class VideoPublisher(Node):
     def __init__(self):
         super().__init__('video_publisher')
-        self.raw_vid_publisher = self.create_publisher(Image, '/camera/image_raw', 10)
+        self.raw_vid_publisher = self.create_publisher(Image, '/flir_camera/image_raw', 10)
         fps = 118
         self.timer = self.create_timer(1 / fps, self.timer_callback)
-        self.cap = cv2.VideoCapture(0)
+        video_path = os.path.expanduser('~/Videos/puck.avi')
+        self.cap = cv2.VideoCapture(video_path)
         self.bridge = CvBridge()
 
         if not self.cap.isOpened():
@@ -19,6 +21,11 @@ class VideoPublisher(Node):
 
     def timer_callback(self):
         ret, frame = self.cap.read()
+        if not ret:
+            # If the video ends, loop back to the beginning
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ret, frame = self.cap.read()
+        
         if ret:
             # Publish the frame as a ROS2 Image message
             msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')

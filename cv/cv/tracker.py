@@ -5,10 +5,11 @@ from cv_bridge import CvBridge
 import numpy as np
 import cv2
 import csv
+import time
 
 import os
 import sys
-sys.path.append(os.path.abspath('/home/parallels/air_hockey_ws/src/cv/cv'))
+sys.path.append(os.path.expanduser('~/air_hockey_ws/src/cv/cv'))
 import extrinsic
 
 class Tracker(Node):
@@ -16,6 +17,7 @@ class Tracker(Node):
         super().__init__('puck_tracker')
         self.raw_vid_subscription = self.create_subscription(Image, '/flir_camera/image_raw', self.listener_callback, 10)
         self.track_publisher = self.create_publisher(Image, '/camera/image_track', 10)
+        self.simulated_puck_publisher = self.create_publisher(Image, '/camera/image_simulated_puck', 10)
         self.puck_mask_publisher = self.create_publisher(Image, '/camera/image_puck_mask', 10)
         self.player_mallet_mask_publisher = self.create_publisher(Image, '/camera/image_player_mallet_mask', 10)
         self.agent_mallet_mask_publisher = self.create_publisher(Image, '/camera/image_agent_mallet_mask', 10)
@@ -42,8 +44,9 @@ class Tracker(Node):
     
     def create_mask(self, frame, target):
         # Convert the frame to HSV color space
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        # hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        # rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         if target == 'puck':
             # Define the range for dark red color in HSV
@@ -61,11 +64,12 @@ class Tracker(Node):
             # Create mask
             # mask = cv2.inRange(hsv, lower, upper)
             # Create the mask if the G value is at least 20 and 1.3 times greater than both R and B values
-            mask = rgb[:, :, 1] >= 20
-            mask = np.logical_and(mask, rgb[:, :, 1] >= 1.3 * rgb[:, :, 0])
-            mask = np.logical_and(mask, rgb[:, :, 1] >= 1.3 * rgb[:, :, 2])
-            # Convert boolean mask to uint8
-            mask = mask.astype(np.uint8) * 255
+            # mask = rgb[:, :, 1] >= 20
+            # mask = np.logical_and(mask, rgb[:, :, 1] >= 1.3 * rgb[:, :, 0])
+            # mask = np.logical_and(mask, rgb[:, :, 1] >= 1.3 * rgb[:, :, 2])
+            # # Convert boolean mask to uint8
+            # mask = mask.astype(np.uint8) * 255
+            mask = cv2.inRange(gray, 220, 255)
         elif target == 'player mallet':
             # Define the range for black color in HSV
             lower = np.array([0, 0, 0])
@@ -76,8 +80,8 @@ class Tracker(Node):
             upper = np.array([85, 255, 255])
 
         # Create mask
-        if target != 'puck':
-            mask = cv2.inRange(hsv, lower, upper)
+        # if target != 'puck':
+        #     mask = cv2.inRange(hsv, lower, upper)
         return mask
     
     def log_csv(self, position, dt):
@@ -163,16 +167,16 @@ class Tracker(Node):
             else:
                 position = None
                 velocity = None
-                self.get_logger().info('No valid contour found')
+                # self.get_logger().info('No valid contour found')
         else:
             position = None
             velocity = None
-            self.get_logger().info('No valid contour found')
+            # self.get_logger().info('No valid contour found')
         
         # Update the previous timestamp
         self.prev_time = timestamp
 
-        self.log_csv(position, dt)
+        # self.log_csv(position, dt)
 
         return position, velocity
     
@@ -185,18 +189,10 @@ class Tracker(Node):
             self.get_logger().info(f'Velocity: x={velocity[0]}, y={velocity[1]}')
             self.get_logger().info(f'Speed: {speed}')
         self.get_logger().info('\n')
+        sys.stdout.flush()
     
+    # Crops an image to keep only the region inside a quadrilateral, making everything else black
     def crop_to_polygon(self, image, points):
-        """
-        Crops an image to keep only the region inside a quadrilateral, making everything else black.
-        
-        Args:
-            image: numpy array of the image
-            points: numpy array of 4 points in order (top-left, top-right, bottom-right, bottom-left)
-    
-        Returns:
-            masked_image: image with everything outside the polygon set to black
-        """
         # Create a mask
         mask = np.zeros(image.shape[:2], dtype=np.uint8)
         
@@ -212,7 +208,25 @@ class Tracker(Node):
         
         return masked_image
     
+    # Generates a top-down view of the table with the puck position.
+    def generate_top_down_view(self, position):
+        # Create a blank white image
+        top_down_image = np.ones((500, 1000, 3), dtype=np.uint8) * 255  # 2m x 1m table
+
+        if position:
+            # Convert world coordinates to image coordinates
+            x_img = int(position[0] * 500)  # 2m -> 1000px
+            y_img = int((1 - position[1]) * 500)  # 1m -> 500px (invert y-axis)
+
+            # Draw the puck as a green circle
+            cv2.circle(top_down_image, (x_img, y_img), 10, (0, 255, 0), -1)
+
+        return top_down_image
+    
     def listener_callback(self, msg):
+        # Start the timer
+        time_img_receive = time.time()
+        
         # Retrieve the timestamp of each frame
         timestamp_sec = msg.header.stamp.sec
         timestamp_nanosec = msg.header.stamp.nanosec
@@ -226,22 +240,23 @@ class Tracker(Node):
         # Convert the ROS Image message to an OpenCV image
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
 
-        if self.extrinsic_count % 500 == 0:
-            rvec, tvec = extrinsic.calibrate_extrinsic(frame)
+        if self.extrinsic_count % 1e12 == 0:
+            rvec, tvec, len_corners = extrinsic.calibrate_extrinsic(frame)
+            self._logger.info(f'len_corners: {len_corners}')
             if rvec is not None and tvec is not None:
                 self.table_corners_cam = extrinsic.project_points(self.table_corners_world,
-                                                                rvec,
-                                                                tvec,
-                                                                self.intrinsic_matrix,
-                                                                self.distortion_coeffs)
+                                                                  rvec,
+                                                                  tvec,
+                                                                  self.intrinsic_matrix,
+                                                                  self.distortion_coeffs)
                 
                 self.rotation_matrix = cv2.Rodrigues(rvec)[0]
                 self.translation_vector = tvec
                 self.get_logger().info('Extrinsic calibration successful')
             else:
-                self.get_logger().error('Extrinsic calibration failed, waiting for next time')
+                self.get_logger().info('Extrinsic calibration failed, waiting for next time')
         
-        frame = self.crop_to_polygon(frame, self.table_corners_cam)
+        # frame = self.crop_to_polygon(frame, self.table_corners_cam)
         
         self.extrinsic_count += 1
 
@@ -249,15 +264,21 @@ class Tracker(Node):
         # frame = cv2.GaussianBlur(frame, (31, 31), 0)
         
         position_puck, velocity_puck = self.track(frame, timestamp, dt, target='puck')
+
         # position_player_mallet, velocity_player_mallet = self.track(frame, timestamp, dt, target='player mallet')
         # position_agent_mallet, velocity_agent_mallet = self.track(frame, timestamp, dt, target='agent mallet')
 
+        before_log_time = time.time()
+        processing_time = before_log_time - time_img_receive
+        self.get_logger().info(f'Processing time: {processing_time}')
         self.log_data(position_puck, velocity_puck, target='puck')
+        after_log_time = time.time()
+        self.get_logger().info(f'Logging time: {after_log_time - before_log_time}')
         # self.log_data(position_player_mallet, velocity_player_mallet, target='player mallet')
         # self.log_data(position_agent_mallet, velocity_agent_mallet, target='agent mallet')
         
-        if dt:
-            self.get_logger().info(f'Elapsed time: {dt}')
+        # if dt:
+        #     self.get_logger().info(f'Elapsed time: {dt}')
         
         # Update the flag after the first frame
         if self.first_frame:
@@ -267,7 +288,16 @@ class Tracker(Node):
         track_msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
         # self.track_publisher.publish(track_msg)
 
-        self.get_logger().info('=' * 40)
+        # Generate and publish the top-down view
+        top_down_image = self.generate_top_down_view(position_puck)
+        top_down_msg = self.bridge.cv2_to_imgmsg(top_down_image, encoding='bgr8')
+        self.simulated_puck_publisher.publish(top_down_msg)
+
+        # self.get_logger().info('=' * 40)
+
+        # End the timer
+        time_end = time.time()
+        # self.get_logger().info(f'Elapsed time: {time_end - time_start}')
 
 def main(args=None):
     rclpy.init(args=args)
